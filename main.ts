@@ -1,85 +1,52 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, requestUrl } from 'obsidian';
 
-// Remember to rename these classes and interfaces!
+// Crypto utilities for encryption/decryption
+import * as CryptoJS from 'crypto-js';
 
-interface MyPluginSettings {
-	mySetting: string;
+interface RewritePluginSettings {
+	apiUrl: string;
+	apiKey: string;
+	encryptionKey: string;
+	model: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+const DEFAULT_SETTINGS: RewritePluginSettings = {
+	apiUrl: '',
+	apiKey: '',
+	encryptionKey: '',
+	model: 'Sonnet-3.7'
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class RewritePlugin extends Plugin {
+	settings: RewritePluginSettings;
 
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
 
-		// This adds a simple command that can be triggered anywhere
+		// This adds a command that can be triggered when text is selected
 		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
+			id: 'rewrite-selected-text',
+			name: 'Rewrite',
 			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+				const selectedText = editor.getSelection();
+				if (selectedText) {
+					this.callRewriteApi(selectedText, editor);
+				} else {
+					new Notice('No text selected');
 				}
 			}
 		});
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.addSettingTab(new RewriteSettingTab(this.app, this));
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
 	}
 
 	onunload() {
-
+		console.log('Unloading Rewrite plugin');
 	}
 
 	async loadSettings() {
@@ -89,28 +56,176 @@ export default class MyPlugin extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
+
+	// Encryption and decryption methods
+	encryptPayload(payload: any): { encrypted: string } {
+		if (!this.settings.encryptionKey) {
+			new Notice('Encryption key not set');
+			return { encrypted: '' };
+		}
+		
+		// Convert payload to JSON string
+		const payloadString = JSON.stringify(payload);
+		
+		// Encrypt using CryptoJS with exact format matching
+		const encrypted = CryptoJS.AES.encrypt(payloadString, this.settings.encryptionKey).toString();
+		
+		// Return the encrypted payload in exact format: {"encrypted":"..."}
+		return { encrypted };
+	}
+
+	decryptResponse(encryptedResponse: { encrypted: string }): any {
+		// If response is not encrypted or no key provided, return as is
+		if (!encryptedResponse.encrypted || !this.settings.encryptionKey) {
+			return encryptedResponse;
+		}
+		
+		try {
+			// Decrypt the response
+			const bytes = CryptoJS.AES.decrypt(encryptedResponse.encrypted, this.settings.encryptionKey);
+			const decryptedString = bytes.toString(CryptoJS.enc.Utf8);
+			
+			// Parse the JSON string back to an object
+			return JSON.parse(decryptedString);
+		} catch (error) {
+			new Notice('Failed to decrypt response: Invalid encryption key or corrupted data');
+			return null;
+		}
+	}
+
+	// API call method
+	async callRewriteApi(text: string, editor: Editor): Promise<void> {
+		if (!this.settings.apiUrl) {
+			new Notice('API URL not configured');
+			return;
+		}
+
+		if (!this.settings.apiKey) {
+			new Notice('API Key not configured');
+			return;
+		}
+
+		if (!this.settings.encryptionKey) {
+			new Notice('Encryption key not configured');
+			return;
+		}
+
+		try {
+			new Notice('Calling API...');
+			
+			// Create messages with the selected text
+			const messages = [
+				{
+					role: 'user',
+					content: `Your task is to take the HTML text provided and improve it while preserving all HTML formatting, including links, bullet points, and other markup. Rewrite it into a clear, grammatically correct version while preserving the original meaning as closely as possible. Correct any spelling mistakes, punctuation errors, verb tense issues, word choice problems, and other grammatical mistakes. Maintain the original HTML structure and only improve the content and return the result as valid HTML.
+
+Here is the text to improve:
+${text}
+Return only the edited text. Do not wrap your response in quotes. Do not offer anything else other than the edited text in the response.`
+				}
+			];
+
+			// Create the payload
+			const payload = {
+				model: this.settings.model,
+				messages: messages,
+				customInstruction: {
+					content: `You are an expert editor who improves text while preserving HTML formatting. 
+				Focus only on improving grammar, spelling, clarity, and readability.
+				Return only the improved text with no additional commentary.
+				Return only the edited text. Do not wrap your response in quotes. Do not offer anything else other than the edited text in the response.`
+				}
+			};
+
+			// Encrypt the payload
+			const encryptedPayload = this.encryptPayload(payload);
+			
+			// Log request details for debugging
+			console.log('API URL:', this.settings.apiUrl);
+			console.log('Original payload:', payload);
+			console.log('Encrypted payload:', encryptedPayload);
+			console.log('Encrypted payload JSON:', JSON.stringify(encryptedPayload));
+			console.log('API key header:', `x-api-key: ${this.settings.apiKey.substring(0, 5)}...`);
+			
+			// Prepare request options - ensure the encrypted payload is sent directly
+			const requestOptions = {
+				url: this.settings.apiUrl,
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'x-api-key': this.settings.apiKey
+				},
+				// Send the encrypted payload directly without any additional wrapping
+				body: JSON.stringify(encryptedPayload)
+			};
+			
+			console.log('Full request options:', JSON.stringify(requestOptions, (key, value) => {
+				// Mask the full API key in logs
+				if (key === 'Authorization' && typeof value === 'string') {
+					return value.replace(/Bearer\s+([^\s].{3}).*/, 'Bearer $1...');
+				}
+				return value;
+			}));
+			
+			// Make API request
+			const response = await requestUrl(requestOptions);
+
+			// Log response details
+			console.log('Response status:', response.status);
+			console.log('Response headers:', response.headers);
+			console.log('Raw response:', response.text);
+			
+			try {
+				// Decrypt the response
+				const encryptedResponseData = response.json;
+				console.log('Response JSON:', encryptedResponseData);
+				
+				const decryptedResponse = this.decryptResponse(encryptedResponseData);
+				console.log('Decrypted response:', decryptedResponse);
+
+				if (decryptedResponse) {
+					// Replace the selected text with the API response
+					editor.replaceSelection(decryptedResponse.content || decryptedResponse.text || '');
+					new Notice('Text updated successfully');
+				} else {
+					new Notice('Failed to process API response');
+				}
+			} catch (parseError: any) {
+				console.error('Error parsing/processing response:', parseError);
+				new Notice(`Error processing response: ${parseError.message}`);
+			}
+		} catch (error: any) {
+			console.error('API call failed:', error);
+			
+			// Provide more detailed error information
+			if (error.status === 401 || error.status === 403) {
+				new Notice(`Authentication failed (${error.status}): Check your API key`);
+				console.error('Authentication error. Verify your API key is correct and sent in the x-api-key header.');
+			} else if (error.status) {
+				new Notice(`API call failed: ${error.status} ${error.message}`);
+				console.error(`Server returned ${error.status}: ${error.message}`);
+				
+				// Log response body if available
+				if (error.response) {
+					try {
+						console.error('Error response body:', error.response.text);
+					} catch (e) {
+						console.error('Could not parse error response');
+					}
+				}
+			} else {
+				new Notice(`API call failed: ${error.message}`);
+			}
+		}
+	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
+class RewriteSettingTab extends PluginSettingTab {
+	plugin: RewritePlugin;
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: RewritePlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -121,13 +236,50 @@ class SampleSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
+			.setName('API URL')
+			.setDesc('Enter the URL of the API to call for text rewriting')
+			.addText((text: any) => text
+				.setPlaceholder('https://api.example.com/rewrite')
+				.setValue(this.plugin.settings.apiUrl)
+				.onChange(async (value: string) => {
+					this.plugin.settings.apiUrl = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('API Key')
+			.setDesc('Enter your API key for authentication')
+			.addText((text: any) => text
+				.setPlaceholder('Enter your API key')
+				.setValue(this.plugin.settings.apiKey ? '••••••••' : '')
+				.onChange(async (value: string) => {
+					if (value && value !== '••••••••') {
+						this.plugin.settings.apiKey = value;
+						await this.plugin.saveSettings();
+					}
+				}));
+
+		new Setting(containerEl)
+			.setName('Encryption Key')
+			.setDesc('Enter a secure encryption key to encrypt/decrypt API requests and responses')
+			.addText((text: any) => text
+				.setPlaceholder('Enter your encryption key')
+				.setValue(this.plugin.settings.encryptionKey ? '••••••••' : '')
+				.onChange(async (value: string) => {
+					if (value && value !== '••••••••') {
+						this.plugin.settings.encryptionKey = value;
+						await this.plugin.saveSettings();
+					}
+				}));
+				
+		new Setting(containerEl)
+			.setName('Model')
+			.setDesc('The AI model to use for text rewriting')
+			.addText((text: any) => text
+				.setPlaceholder('Sonnet-3.7')
+				.setValue(this.plugin.settings.model)
+				.onChange(async (value: string) => {
+					this.plugin.settings.model = value || 'Sonnet-3.7';
 					await this.plugin.saveSettings();
 				}));
 	}

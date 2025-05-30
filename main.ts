@@ -46,7 +46,7 @@ export default class RewritePlugin extends Plugin {
 	}
 
 	onunload() {
-		console.log('Unloading Rewrite plugin');
+
 	}
 
 	async loadSettings() {
@@ -140,12 +140,8 @@ Return only the edited text. Do not wrap your response in quotes. Do not offer a
 			// Encrypt the payload
 			const encryptedPayload = this.encryptPayload(payload);
 			
-			// Log request details for debugging
-			console.log('API URL:', this.settings.apiUrl);
-			console.log('Original payload:', payload);
-			console.log('Encrypted payload:', encryptedPayload);
-			console.log('Encrypted payload JSON:', JSON.stringify(encryptedPayload));
-			console.log('API key header:', `x-api-key: ${this.settings.apiKey.substring(0, 5)}...`);
+			// // Log request details for debugging
+
 			
 			// Prepare request options - ensure the encrypted payload is sent directly
 			const requestOptions = {
@@ -159,29 +155,19 @@ Return only the edited text. Do not wrap your response in quotes. Do not offer a
 				body: JSON.stringify(encryptedPayload)
 			};
 			
-			console.log('Full request options:', JSON.stringify(requestOptions, (key, value) => {
-				// Mask the full API key in logs
-				if (key === 'Authorization' && typeof value === 'string') {
-					return value.replace(/Bearer\s+([^\s].{3}).*/, 'Bearer $1...');
-				}
-				return value;
-			}));
-			
 			// Make API request
 			const response = await requestUrl(requestOptions);
 
 			// Log response details
-			console.log('Response status:', response.status);
-			console.log('Response headers:', response.headers);
-			console.log('Raw response:', response.text);
+			// Response details available for debugging if needed
 			
 			try {
 				// Decrypt the response
 				const encryptedResponseData = response.json;
-				console.log('Response JSON:', encryptedResponseData);
+				// Process response JSON
 				
 				const decryptedResponse = this.decryptResponse(encryptedResponseData);
-				console.log('Decrypted response:', decryptedResponse);
+				// Process decrypted response
 
 				if (decryptedResponse) {
 					// Replace the selected text with the API response

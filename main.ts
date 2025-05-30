@@ -117,7 +117,7 @@ export default class RewritePlugin extends Plugin {
 			const messages = [
 				{
 					role: 'user',
-					content: `Your task is to take the HTML text provided and improve it while preserving all HTML formatting, including links, bullet points, and other markup. Rewrite it into a clear, grammatically correct version while preserving the original meaning as closely as possible. Correct any spelling mistakes, punctuation errors, verb tense issues, word choice problems, and other grammatical mistakes. Maintain the original HTML structure and only improve the content and return the result as valid HTML.
+					content: `Your task is to take the text provided and improve it while preserving all formatting, including links, bullet points, and other markup. Rewrite it into a clear, grammatically correct version while preserving the original meaning as closely as possible. Correct any spelling mistakes, punctuation errors, verb tense issues, word choice problems, and other grammatical mistakes. Maintain the original structure and only improve the content and return the result as valid markdown.
 
 Here is the text to improve:
 ${text}
@@ -130,7 +130,7 @@ Return only the edited text. Do not wrap your response in quotes. Do not offer a
 				model: this.settings.model,
 				messages: messages,
 				customInstruction: {
-					content: `You are an expert editor who improves text while preserving HTML formatting. 
+					content: `You are an expert editor who improves text while preserving formatting. 
 				Focus only on improving grammar, spelling, clarity, and readability.
 				Return only the improved text with no additional commentary.
 				Return only the edited text. Do not wrap your response in quotes. Do not offer anything else other than the edited text in the response.`
